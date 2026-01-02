@@ -1,76 +1,107 @@
-const { Telegraf, Markup } = require("telegraf");
+import asyncio
+from aiogram import Bot, Dispatcher, types
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+from aiogram.filters import Command
+from datetime import datetime, timedelta
 
-const bot = new Telegraf("8550954767:AAFD-u5tdLHFshIPK6aQQzAJCn6-Ax1azCA");
+API_TOKEN = "8550954767:AAFD-u5tdLHFshIPK6aQQzAJCn6-Ax1azCA"
+OWNER_ID = 8452357204  # owner telegram id
 
-const OWNER_ID = 8452357204; // owner telegram id
-let botStopped = false;
-let premiumUsers = new Set();
-let waitingTime = new Set();
+bot = Bot(token=API_TOKEN)
+dp = Dispatcher()
 
-// /start
-bot.start((ctx) => {
-  const id = ctx.from.id;
+bot_stopped = False
+premium_users = set()
+waiting_time = set()
 
-  ctx.reply(
-    `👋 Welcome to Signal Bot\n\n🆔 Your User ID: ${id}`,
-    Markup.keyboard([["/signal"]]).resize()
-  );
-});
+# Keyboard
+main_kb = ReplyKeyboardMarkup(
+    keyboard=[[KeyboardButton(text="/signal")]],
+    resize_keyboard=True
+)
 
-// /signal
-bot.command("signal", (ctx) => {
-  const id = ctx.from.id;
+# /start
+@dp.message(Command("start"))
+async def start_cmd(message: types.Message):
+    uid = message.from_user.id
+    await message.answer(
+        f"👋 Welcome to Signal Bot\n\n🆔 Your User ID: {uid}",
+        reply_markup=main_kb
+    )
 
-  if (botStopped && !premiumUsers.has(id) && id !== OWNER_ID) {
-    return ctx.reply("❌ Bot restricted.\nActivate Premium to continue.");
-  }
+# /signal
+@dp.message(Command("signal"))
+async def signal_cmd(message: types.Message):
+    uid = message.from_user.id
 
-  waitingTime.add(id);
-  ctx.reply("Please send the current time (Example: 10:16)");
-});
+    if bot_stopped and uid not in premium_users and uid != OWNER_ID:
+        await message.answer(
+            "❌ Bot restricted.\n"
+            "Please activate Premium for your User ID."
+        )
+        return
 
-// Time input
-bot.on("text", (ctx) => {
-  const id = ctx.from.id;
-  if (!waitingTime.has(id)) return;
+    waiting_time.add(uid)
+    await message.answer(
+        "Please send the current time in English format.\n"
+        "Example: 10:16"
+    )
 
-  const time = ctx.message.text;
-  const [h, m] = time.split(":").map(Number);
-  if (isNaN(h) || isNaN(m)) return ctx.reply("Invalid time format!");
+# Time input
+@dp.message()
+async def time_handler(message: types.Message):
+    uid = message.from_user.id
 
-  const date = new Date();
-  date.setHours(h);
-  date.setMinutes(m + 5);
+    if uid not in waiting_time:
+        return
 
-  const newTime =
-    date.getHours().toString().padStart(2, "0") +
-    ":" +
-    date.getMinutes().toString().padStart(2, "0");
+    try:
+        user_time = datetime.strptime(message.text, "%H:%M")
+        signal_time = user_time + timedelta(minutes=5)
 
-  waitingTime.delete(id);
+        waiting_time.remove(uid)
 
-  ctx.reply(
-    `⏰ Your Time: ${time}\n⏰ Signal Time: ${newTime}\n\n⚠️ Bet on the round AFTER this time.`
-  );
-});
+        await message.answer(
+            f"⏰ Your Time: {user_time.strftime('%H:%M')}\n"
+            f"⏰ Signal Time: {signal_time.strftime('%H:%M')}\n\n"
+            f"⚠️ When placing a bet, bet on the round AFTER this time."
+        )
+    except:
+        await message.answer("❌ Invalid format! Use HH:MM (Example: 10:16)")
 
-// /stop (Owner)
-bot.command("stop", (ctx) => {
-  if (ctx.from.id !== OWNER_ID) return;
-  botStopped = true;
-  ctx.reply("🚫 Bot stopped for free users.");
-});
+# /stop (Owner)
+@dp.message(Command("stop"))
+async def stop_cmd(message: types.Message):
+    global bot_stopped
+    if message.from_user.id != OWNER_ID:
+        return
 
-// /premium <id>
-bot.command("premium", (ctx) => {
-  if (ctx.from.id !== OWNER_ID) return;
+    bot_stopped = True
+    await message.answer("🚫 Bot stopped for FREE users.")
 
-  const id = Number(ctx.message.text.split(" ")[1]);
-  if (!id) return ctx.reply("Usage: /premium <userid>");
+# /premium <id>
+@dp.message(Command("premium"))
+async def premium_cmd(message: types.Message):
+    if message.from_user.id != OWNER_ID:
+        return
 
-  premiumUsers.add(id);
-  ctx.reply(`✅ Premium activated for ${id}`);
-  bot.telegram.sendMessage(id, "✅ Premium Activated! Enjoy the bot.");
-});
+    args = message.text.split()
+    if len(args) != 2 or not args[1].isdigit():
+        await message.answer("Usage: /premium <userid>")
+        return
 
-bot.launch();
+    uid = int(args[1])
+    premium_users.add(uid)
+
+    await message.answer(f"✅ Premium activated for {uid}")
+    try:
+        await bot.send_message(uid, "✅ Premium Activated!\nYou can now use the bot.")
+    except:
+        pass
+
+# Start bot
+async def main():
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    asyncio.run(main())
